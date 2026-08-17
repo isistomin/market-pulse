@@ -2,7 +2,7 @@ import pandas as pd
 
 from ingestion.crypto.storage import partition_path, read_ticks, to_frame, write_ticks
 
-DAY_ONE_MS = 1786000000000  # 2026-08-04T04:26:40Z
+DAY_ONE_MS = 1786000000000  # 2026-08-06T07:06:40Z
 MINUTE_MS = 60_000
 DAY_MS = 86_400_000
 

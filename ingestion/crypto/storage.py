@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 from pathlib import Path
 
 import pandas as pd
@@ -61,10 +62,52 @@ def write_ticks(ticks: list[dict], root: Path | str) -> list[Path]:
     return sorted(written)
 
 
-def read_ticks(root: Path | str) -> pd.DataFrame:
-    files = sorted(Path(root).glob("crypto_ticks/date=*/pair=*/part-*.parquet"))
+def read_ticks(root: Path | str, date: pd.Timestamp | str | None = None) -> pd.DataFrame:
+    """Read raw ticks, optionally limited to a single day partition."""
+    day = "*" if date is None else pd.Timestamp(date).strftime("%Y-%m-%d")
+    files = sorted(Path(root).glob(f"crypto_ticks/date={day}/pair=*/part-*.parquet"))
     if not files:
         return pd.DataFrame(columns=SCHEMA)
+    return pd.concat(
+        [pd.read_parquet(file, engine="pyarrow") for file in files], ignore_index=True
+    )
+
+
+def bars_partition_path(
+    root: Path | str, freq: str, date: pd.Timestamp | str, pair: str
+) -> Path:
+    day = pd.Timestamp(date).strftime("%Y-%m-%d")
+    return Path(root) / "crypto_bars" / f"freq={freq}" / f"date={day}" / f"pair={pair}"
+
+
+def write_bars(bars: pd.DataFrame, root: Path | str, freq: str) -> list[Path]:
+    """Write OHLC bars into freq/date/pair partitions, replacing what is there.
+
+    Bars are derived data: a rerun recomputes a partition from the ticks, so the
+    partition is replaced rather than appended to, the same way the stock DAG works.
+    """
+    if bars.empty:
+        return []
+
+    written: list[Path] = []
+    for (day, pair), group in bars.groupby([bars["bar_start"].dt.date, "pair"]):
+        target = bars_partition_path(root, freq, pd.Timestamp(day), pair)
+        if target.exists():
+            shutil.rmtree(target)
+        target.mkdir(parents=True, exist_ok=True)
+
+        payload = group.sort_values("bar_start").reset_index(drop=True)
+        payload.to_parquet(target / "bars.parquet", index=False, engine="pyarrow")
+        written.append(target)
+        log.info("wrote %d %s bars to %s", len(payload), freq, target)
+
+    return sorted(written)
+
+
+def read_bars(root: Path | str, freq: str) -> pd.DataFrame:
+    files = sorted(Path(root).glob(f"crypto_bars/freq={freq}/date=*/pair=*/bars.parquet"))
+    if not files:
+        return pd.DataFrame()
     return pd.concat(
         [pd.read_parquet(file, engine="pyarrow") for file in files], ignore_index=True
     )
