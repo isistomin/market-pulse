@@ -1,0 +1,4 @@
+confluent-kafka>=2.15.0
+websockets>=17.0
+pandas>=2.2
+pyarrow>=17.0

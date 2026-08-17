@@ -31,6 +31,53 @@ x-airflow-common: &airflow-common
       condition: service_healthy
 
 services:
+  # Kafka 4.x runs KRaft only: the broker and the controller quorum live in the
+  # same process and Zookeeper is gone.
+  kafka:
+    image: apache/kafka:4.3.1
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'false'
+      CLUSTER_ID: market-pulse-local-cluster
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+
+  # Topics are created explicitly: auto-creation would silently give the topic one
+  # partition and the cluster default retention.
+  kafka-init:
+    image: apache/kafka:4.3.1
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 \
+          --create --if-not-exists --topic crypto_ticks \
+          --partitions 3 --replication-factor 1 \
+          --config retention.ms=86400000
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 \
+          --describe --topic crypto_ticks
+
   postgres:
     image: postgres:16
     environment:
@@ -128,5 +175,40 @@ services:
       airflow-init:
         condition: service_completed_successfully
 
+  # Long-running streaming processes, deliberately not Airflow tasks: Airflow
+  # schedules bounded work, it does not supervise a socket that stays open.
+  crypto-producer:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.streaming
+    image: market-pulse/streaming:0.1.0
+    command: python -m ingestion.crypto.producer
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      CRYPTO_TOPIC: crypto_ticks
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  crypto-consumer:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.streaming
+    image: market-pulse/streaming:0.1.0
+    command: python -m ingestion.crypto.consumer
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      CRYPTO_TOPIC: crypto_ticks
+      CRYPTO_CONSUMER_GROUP: crypto_parquet_writer
+      MARKET_PULSE_DATA_DIR: /opt/project/data
+    volumes:
+      - ../data:/opt/project/data
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
 volumes:
   postgres-db-volume:
+  kafka-data:
