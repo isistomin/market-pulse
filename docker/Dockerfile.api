@@ -1,0 +1,21 @@
+FROM python:3.12-slim
+
+WORKDIR /opt/project
+
+COPY docker/requirements-api.txt /tmp/requirements-api.txt
+RUN pip install --no-cache-dir -r /tmp/requirements-api.txt
+
+COPY analytics /opt/project/analytics
+COPY ingestion /opt/project/ingestion
+COPY api /opt/project/api
+
+# The API only ever reads the snapshot, so it runs unprivileged.
+RUN useradd --create-home --uid 10001 appuser
+USER appuser
+
+ENV PYTHONPATH=/opt/project \
+    PYTHONUNBUFFERED=1
+
+EXPOSE 8000
+
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]

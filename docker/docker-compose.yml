@@ -114,7 +114,10 @@ services:
     <<: *airflow-common
     command: api-server
     ports:
-      - "8080:8080"
+      # Bound to the loopback interface on purpose. Airflow executes arbitrary code
+      # by design, so its UI is never published; reach it over an SSH tunnel:
+      #   ssh -L 8080:127.0.0.1:8080 user@host
+      - "127.0.0.1:8080:8080"
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8080/api/v2/monitor/health"]
       interval: 30s
@@ -207,6 +210,28 @@ services:
     depends_on:
       kafka-init:
         condition: service_completed_successfully
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    image: market-pulse/api:0.1.0
+    environment:
+      MARKET_PULSE_DATA_DIR: /opt/project/data
+      API_CORS_ORIGINS: ${API_CORS_ORIGINS}
+    volumes:
+      # Read-only: the API serves the snapshot and never writes to the raw layer.
+      - ../data:/opt/project/data:ro
+    ports:
+      # Published to loopback only; the host nginx terminates TLS and proxies here.
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     restart: unless-stopped
 
 volumes:
