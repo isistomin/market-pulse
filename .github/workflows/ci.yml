@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Lint
+        run: uv run --extra dev ruff check ingestion analytics api tests airflow/dags
+
+      # Network-marked tests are excluded: a green build must not depend on
+      # yfinance or Binance being reachable.
+      - name: Test
+        run: uv run --extra dev pytest -q -m "not network"
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate compose and check nothing is published beyond loopback
+        run: |
+          cp docker/.env.example docker/.env
+          {
+            echo "AIRFLOW_UID=1000"
+            echo "FERNET_KEY=ci-placeholder"
+            echo "AIRFLOW_JWT_SECRET=ci-placeholder"
+            echo "AIRFLOW_ADMIN_PASSWORD=ci-placeholder"
+          } >> docker/.env
+
+          docker compose -f docker/docker-compose.yml config --quiet
+
+          docker compose -f docker/docker-compose.yml config --format json \
+            | python3 -c '
+          import json, sys
+          services = json.load(sys.stdin).get("services", {})
+          exposed = [
+              (name, port)
+              for name, service in services.items()
+              for port in service.get("ports") or []
+              if port.get("host_ip") not in ("127.0.0.1", "::1")
+          ]
+          if exposed:
+              sys.exit(f"published beyond loopback: {exposed}")
+          print("all published ports are loopback-only")
+          '
