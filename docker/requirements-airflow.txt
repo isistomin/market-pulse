@@ -1,0 +1,5 @@
+# Runtime dependencies for DAG execution. Kept apart from the dev extras in
+# pyproject.toml: this list is what has to exist inside the Airflow image.
+yfinance>=1.6.0
+pandas>=2.2
+pyarrow>=17.0
