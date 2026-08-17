@@ -1,0 +1,28 @@
+[project]
+name = "market-pulse"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "yfinance>=1.6.0",
+    "pandas>=2.2",
+    "pyarrow>=17.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
+[tool.setuptools.packages.find]
+include = ["ingestion*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["network: calls an external API"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

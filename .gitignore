@@ -1,0 +1,50 @@
+# Planning notes, kept out of the repository
+.planning/
+CLAUDE.md
+.claude/
+
+# Data
+data/
+*.parquet
+
+# Secrets
+.env
+credentials/
+*service-account*.json
+*-key.json
+gcp-*.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# dbt
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/
+profiles.yml
+
+# Airflow: generated at container start, not part of the repository
+airflow/logs/
+airflow/config/
+airflow/airflow.db
+airflow/webserver_config.py
+
+# Spark
+spark/spark-warehouse/
+spark/checkpoints/
+derby.log
+
+# Node
+node_modules/
+web/dist/
+
+# OS and editors
+.DS_Store
+.idea/
+.vscode/
